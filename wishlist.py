@@ -4,6 +4,7 @@
 
 """
 
+from trytond.transaction import Transaction
 from trytond.pool import PoolMeta, Pool
 from trytond.model import ModelView, ModelSQL, fields
 from nereid import login_required, current_user, request, \
@@ -200,16 +201,24 @@ class Wishlist(ModelSQL, ModelView):
                 raise ValidationError("Wishlist not valid!")
         else:
             wishlist = cls._search_or_create_wishlist()
-        product = Product.search([
-            ('id', '=', request.form.get("product", type=int)),
-            ('displayed_on_eshop', '=', True),
-            ('template.active', '=', True),
-        ], limit=1)
-        if not product or request.form.get('action') not in ['add', 'remove']:
+
+        with Transaction().set_context(active_test=False):
+            product = Product.search([
+                ('id', '=', request.form.get("product", type=int)),
+            ], limit=1)
+
+        action = request.form.get('action')
+        if not product or action not in ('add', 'remove'):
             abort(404)
-        cls.write([wishlist], {
-            'products': [(request.form.get('action'), product)],
-        })
+
+        if action == 'add' and not all((
+            product[0].displayed_on_eshop, product[0].template.active,
+            product[0].active
+        )):
+            abort(404)
+
+        cls.write([wishlist], {'products': [(action, product)], })
+
         if request.is_xhr:
             # TODO: Send serailized data of wishllist
             return 'success', 200
